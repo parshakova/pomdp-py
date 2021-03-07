@@ -1,0 +1,7 @@
+numpy
+scipy
+matplotlib
+pygame
+opencv-python
+networkx
+pygraphviz

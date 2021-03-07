@@ -1,0 +1,11 @@
+Metadata-Version: 1.0
+Name: pomdp-py
+Version: 1.2
+Summary: Python POMDP Library.
+Home-page: UNKNOWN
+Author: Kaiyu Zheng
+Author-email: kaiyutony@gmail.com
+License: UNKNOWN
+Description: UNKNOWN
+Keywords: Partially Observable Markov Decision Process,POMDP
+Platform: UNKNOWN
