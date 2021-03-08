@@ -447,8 +447,9 @@ def test_planner(card_problem, planner, nsteps):
             np.array(true_next_state.val)[::3].sum(), int(true_next_state.terminal)))
         
 
-        vals = {a: card_problem.agent.tree.children[a].value for a in card_problem.agent.tree.children.keys()}
-        print(card_problem.agent.tree, vals, card_problem.env.state, real_observation)
+        print(card_problem.agent.tree, card_problem.agent.tree.children, card_problem.env.state, real_observation)
+        vals = {a:card_problem.agent.tree.children[a].value for a in card_problem.agent.tree.children.keys()}
+        print(vals)
         if i == 0:
             solved_tree = copy.deepcopy(card_problem.agent.tree)
 
@@ -585,6 +586,30 @@ def env_reset_s0(problem):
     problem.env.state.terminal = False
     return s0
 
+def mc_average(card_problem, planner, n_iter, file_name, init_b, reuse, T):
+    rewards = np.zeros(n_iter)
+
+    for it in range(n_iter):
+        card_problem.agent.set_belief(init_b, prior = True)
+        
+        if it == 0 or not reuse:
+            r, tree_i = test_planner(card_problem, planner, nsteps=T)
+            
+        else:
+            r =  planner_reuse_tree(card_problem, planner, nsteps=T)
+        print(card_problem.agent.tree)
+
+        card_problem.agent.tree = copy.deepcopy(tree_i)
+
+        rewards[it] = r
+        np.save(file_name, rewards)
+
+        print("*** iter = %d"%(it+1))
+
+    print("average reward ", rewards.mean(), "over %d iter"%n_iter)
+
+    return rewards
+
 def main():
 
     T = P.m*P.n
@@ -615,29 +640,7 @@ def main():
 
     n_iter = 10
     reuse = True
-    rewards = np.zeros(n_iter)
-
-    for it in range(n_iter):
-        card_problem.agent.set_belief(init_belief_part, prior = True)
-        
-        if it == 0 or not reuse:
-            r, tree_i = test_planner(card_problem, pouct, nsteps=T)
-            
-        else:
-            r =  planner_reuse_tree(card_problem, pouct, nsteps=T)
-
-        card_problem.agent.tree = copy.deepcopy(tree_i)
-        print(card_problem.agent.tree)
-
-        rewards[it] = r
-
-        
-
-        np.save("rewards_pouct_term.npy", rewards)
-
-        print(" iter = %d"%it)
-
-    #print("average reward ", rewards.mean(), "over %d iter"%n_iter)
+    uct_rewards = mc_average(card_problem, pouct, n_iter, "rewards_pouct%d.npy"%n_iter, init_belief_hist, reuse, T)
 
 
 
@@ -652,29 +655,9 @@ def main():
                                rollout_policy=card_problem.agent.policy_model,
                                num_visits_init=1)
 
-    rewards = np.zeros(n_iter)
+    mcp_rewards = mc_average(card_problem, pomcp, n_iter, "rewards_pomcp%d.npy"%n_iter, init_belief_part, reuse, T)
 
-    for it in range(n_iter):
-        card_problem.agent.set_belief(init_belief_part, prior = True)
-        
-        if it == 0 or not reuse:
-            r, tree_i = test_planner(card_problem, pomcp, nsteps=T)
-            
-        else:
-            r =  planner_reuse_tree(card_problem, pomcp, nsteps=T)
-        print(card_problem.agent.tree)
-
-        card_problem.agent.tree = copy.deepcopy(tree_i)
-
-        rewards[it] = r
-
-        
-
-        np.save("rewards_pomcp_term.npy", rewards)
-
-        print(" iter = %d"%it)
-
-    print("average reward ", rewards.mean(), "over %d iter"%n_iter)
+    
 
 
 
