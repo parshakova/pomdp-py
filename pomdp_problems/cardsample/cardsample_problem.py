@@ -454,6 +454,13 @@ def test_planner(card_problem, planner, nsteps):
 
         planner.update(card_problem.agent, action, real_observation)
 
+        if isinstance(card_problem.agent.cur_belief, pomdp_py.Histogram):
+            new_belief = pomdp_py.update_histogram_belief(card_problem.agent.cur_belief,
+                                                          action, real_observation,
+                                                          card_problem.agent.observation_model,
+                                                          card_problem.agent.transition_model)
+            card_problem.agent.set_belief(new_belief)
+
         
 
     print("Reward (Cumulative): %s" % str(total_reward))
@@ -495,9 +502,16 @@ def planner_reuse_tree(card_problem, planner, nsteps):
             np.array(true_next_state.val)[::3].sum(), int(true_next_state.terminal)))
         
         print(card_problem.agent.tree, card_problem.agent.tree.children, card_problem.env.state, real_observation)
-        vals = [card_problem.agent.tree.children[a].value for a in card_problem.agent.tree.children.keys()]
+        vals = {a:card_problem.agent.tree.children[a].value for a in card_problem.agent.tree.children.keys()}
         print(vals)
         planner.update(card_problem.agent, action, real_observation)
+
+        if isinstance(card_problem.agent.cur_belief, pomdp_py.Histogram):
+            new_belief = pomdp_py.update_histogram_belief(card_problem.agent.cur_belief,
+                                                          action, real_observation,
+                                                          card_problem.agent.observation_model,
+                                                          card_problem.agent.transition_model)
+            card_problem.agent.set_belief(new_belief)
 
 
     print("Reward (Cumulative): %s" % str(total_reward))
@@ -599,7 +613,7 @@ def main():
                            num_sims=40000, exploration_const=200,
                            rollout_policy=card_problem.agent.policy_model)
 
-    n_iter = 0
+    n_iter = 10
     reuse = True
     rewards = np.zeros(n_iter)
 
