@@ -42,7 +42,7 @@ import copy
 
 class P:
     m = 2
-    n = 3
+    n = 2
 
 def get_s_a_update(state, a):
     # 3*ct is already updated during t-1 step
@@ -448,14 +448,60 @@ def test_planner(card_problem, planner, nsteps):
         
 
         print(card_problem.agent.tree[action].children, card_problem.env.state, real_observation)
-        planner.update(card_problem.agent, action, real_observation)
-
         if i == 0:
             solved_tree = copy.deepcopy(card_problem.agent.tree)
+
+        planner.update(card_problem.agent, action, real_observation)
+
+        
 
     print("Reward (Cumulative): %s" % str(total_reward))
 
     return total_reward, solved_tree
+
+
+def planner_reuse_tree(card_problem, planner, nsteps):
+    """
+    Runs the action-feedback loop of Card Guessing problem POMDP
+
+    Args:
+        card_problem (card_problem): an instance of the card guessing problem.
+        planner: planner
+        nsteps (int): Maximum number of steps to run this loop.
+    """
+    s0 = env_reset_s0(card_problem)
+    print("s0 ",   s0)
+    total_reward = 0
+    #policy = card_problem.agent.policy_model
+
+    for i in range(nsteps):
+        print("==== Step %d ====" % (i+1))
+        action = max(card_problem.agent.tree.children, key=lambda a: card_problem.agent.tree.children[a].value)
+
+        true_state = copy.deepcopy(card_problem.env.state)
+        env_reward = card_problem.env.state_transition(action, execute=True)
+        true_next_state = copy.deepcopy(card_problem.env.state)
+        real_observation = card_problem.env.provide_observation(card_problem.agent.observation_model, action)
+        card_problem.agent.update_history(action, real_observation)
+
+        total_reward += np.maximum(0, env_reward)
+        #print("belief ", card_problem.agent.cur_belief, len(card_problem.agent.cur_belief))
+        print("True state: %s, %d %d" % (true_state, np.array(true_state.val)[::3].sum(), int(true_state.terminal)))
+        print("Action: %s" % str(action))
+        print("Observation: %s,  %d" % (str(real_observation), np.array(real_observation.val).sum()))
+        print("Reward: %s" % str(np.maximum(0, env_reward)))
+        print("True next state: %s, %d %d" % (true_next_state, 
+            np.array(true_next_state.val)[::3].sum(), int(true_next_state.terminal)))
+        
+
+        print(card_problem.agent.tree[action].children, card_problem.env.state, real_observation)
+        planner.update(card_problem.agent, action, real_observation)
+
+
+    print("Reward (Cumulative): %s" % str(total_reward))
+
+    return total_reward
+
 
 
 
@@ -525,10 +571,10 @@ def env_reset_s0(problem):
 
 def main():
 
-    T = P.m*P.n+1
+    T = P.m*P.n
     init_true_state= get_random_state()
-    #init_belief = init_belief_particle(all_states)
-    init_belief_hist = init_belief_particle_s0(all_states)
+    init_belief_hist = init_belief_histogram(all_states)
+    init_belief_part = init_belief_particle_s0(all_states)
     card_problem = CardProblem(init_true_state, init_belief_hist)
 
     """
@@ -542,19 +588,48 @@ def main():
         test_formulation(card_problem, policy, nsteps=T)
 
     """
-
-
-    """
-    print("** Testing value iteration **")
-    vi = pomdp_py.ValueIteration(horizon=T, discount_factor=1)
-    test_planner(card_problem, vi, nsteps=T)
-
-
-    """
-    #card_problem.agent.set_belief(pomdp_py.Particles.from_histogram(init_belief_hist, num_particles=200), prior=True)
     card_problem.agent.tree = None
 
+    card_problem.agent.set_belief(init_belief_hist, prior=True)
+
+    print("\n** Testing POUCT **")
+    pouct = pomdp_py.POUCT(max_depth=3, discount_factor=0.95,
+                           num_sims=20000, exploration_const=200,
+                           rollout_policy=card_problem.agent.policy_model)
+
+    n_iter = 1000
+    reuse = False
+    rewards = np.zeros(n_iter)
+
+    for it in range(n_iter):
+        card_problem.agent.set_belief(init_belief_part, prior = True)
+        
+        if it == 0 or not reuse:
+            r, tree_i = test_planner(card_problem, pouct, nsteps=T)
+            
+        else:
+            r =  planner_reuse_tree(card_problem, pouct, nsteps=T)
+        print(card_problem.agent.tree)
+
+        card_problem.agent.tree = copy.deepcopy(tree_i)
+
+        rewards[it] = r
+
+        
+
+        np.save("rewards_pouct_term.npy", rewards)
+
+        print(" iter = %d"%it)
+
+    print("average reward ", rewards.mean(), "over %d iter"%n_iter)
+
+
+
     print("*** Testing POMCP ***")
+
+    card_problem.agent.tree = None
+
+    reuse = True
 
     pomcp = pomdp_py.POMCP(max_depth=6, discount_factor=1.,
                                num_sims=20000, exploration_const=20,
@@ -565,14 +640,20 @@ def main():
     rewards = np.zeros(n_iter)
 
     for it in range(n_iter):
-        card_problem.agent.set_belief(init_belief_particle_s0(all_states), prior = True)
+        card_problem.agent.set_belief(init_belief_part, prior = True)
         
-        r, tree_i = test_planner(card_problem, pomcp, nsteps=T)
+        if it == 0 or not reuse:
+            r, tree_i = test_planner(card_problem, pomcp, nsteps=T)
+            
+        else:
+            r =  planner_reuse_tree(card_problem, pomcp, nsteps=T)
         print(card_problem.agent.tree)
+
+        card_problem.agent.tree = copy.deepcopy(tree_i)
 
         rewards[it] = r
 
-        card_problem.agent.tree = tree_i
+        
 
         np.save("rewards_pomcp_term.npy", rewards)
 
