@@ -447,7 +447,8 @@ def test_planner(card_problem, planner, nsteps):
             np.array(true_next_state.val)[::3].sum(), int(true_next_state.terminal)))
         
 
-        print(card_problem.agent.tree[action].children, card_problem.env.state, real_observation)
+        vals = {a: card_problem.agent.tree.children[a].value for a in card_problem.agent.tree.children.keys()}
+        print(card_problem.agent.tree, vals, card_problem.env.state, real_observation)
         if i == 0:
             solved_tree = copy.deepcopy(card_problem.agent.tree)
 
@@ -493,8 +494,9 @@ def planner_reuse_tree(card_problem, planner, nsteps):
         print("True next state: %s, %d %d" % (true_next_state, 
             np.array(true_next_state.val)[::3].sum(), int(true_next_state.terminal)))
         
-
-        print(card_problem.agent.tree[action].children, card_problem.env.state, real_observation)
+        print(card_problem.agent.tree, card_problem.agent.tree.children, card_problem.env.state, real_observation)
+        vals = [card_problem.agent.tree.children[a].value for a in card_problem.agent.tree.children.keys()]
+        print(vals)
         planner.update(card_problem.agent, action, real_observation)
 
 
@@ -593,12 +595,12 @@ def main():
     card_problem.agent.set_belief(init_belief_hist, prior=True)
 
     print("\n** Testing POUCT **")
-    pouct = pomdp_py.POUCT(max_depth=3, discount_factor=0.95,
-                           num_sims=20000, exploration_const=200,
+    pouct = pomdp_py.POUCT(max_depth=T//2, discount_factor=0.95,
+                           num_sims=40000, exploration_const=200,
                            rollout_policy=card_problem.agent.policy_model)
 
-    n_iter = 1000
-    reuse = False
+    n_iter = 0
+    reuse = True
     rewards = np.zeros(n_iter)
 
     for it in range(n_iter):
@@ -609,9 +611,9 @@ def main():
             
         else:
             r =  planner_reuse_tree(card_problem, pouct, nsteps=T)
-        print(card_problem.agent.tree)
 
         card_problem.agent.tree = copy.deepcopy(tree_i)
+        print(card_problem.agent.tree)
 
         rewards[it] = r
 
@@ -621,22 +623,21 @@ def main():
 
         print(" iter = %d"%it)
 
-    print("average reward ", rewards.mean(), "over %d iter"%n_iter)
+    #print("average reward ", rewards.mean(), "over %d iter"%n_iter)
 
 
 
     print("*** Testing POMCP ***")
 
     card_problem.agent.tree = None
-
+    n_iter = 100
     reuse = True
 
-    pomcp = pomdp_py.POMCP(max_depth=6, discount_factor=1.,
+    pomcp = pomdp_py.POMCP(max_depth=T//2, discount_factor=1.,
                                num_sims=20000, exploration_const=20,
                                rollout_policy=card_problem.agent.policy_model,
                                num_visits_init=1)
 
-    n_iter = 1000
     rewards = np.zeros(n_iter)
 
     for it in range(n_iter):

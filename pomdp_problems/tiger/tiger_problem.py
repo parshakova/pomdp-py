@@ -223,7 +223,15 @@ def test_planner(tiger_problem, planner, nsteps=3):
         print(">> Observation: %s" % real_observation)
         tiger_problem.agent.update_history(action, real_observation)
 
+        if isinstance(planner, pomdp_py.POUCT) or isinstance(planner, pomdp_py.POMCP):
+            print( tiger_problem.agent.tree, tiger_problem.agent.tree[action].children, tiger_problem.env.state, real_observation)
+
         planner.update(tiger_problem.agent, action, real_observation)
+
+        if isinstance(planner, pomdp_py.POUCT) or isinstance(planner, pomdp_py.POMCP):
+            print( tiger_problem.agent.tree, tiger_problem.agent.tree[action].children, tiger_problem.env.state, real_observation)
+
+
         if isinstance(planner, pomdp_py.POUCT):
             print("Num sims: %d" % planner.last_num_sims)
             print("Plan time: %.5f" % planner.last_planning_time)
