@@ -310,6 +310,7 @@ class TransitionModel(pomdp_py.TransitionModel):
 
         # multiplicities of left over cards
         probs = P.m - sp_a_val[::3]
+        r = 0
 
         if probs.sum() == 0:
             card = "$"
@@ -321,7 +322,7 @@ class TransitionModel(pomdp_py.TransitionModel):
             terminal = False
             # update card c_{t+1} counter
             sp_a_val[3*card] += 1
-        r = int(action.val == state.card)
+            r = int(action.val == state.card)
 
         return State(tuple(sp_a_val), card, r=r, terminal=terminal)
 
@@ -573,7 +574,7 @@ def main():
 
         card_problem.agent.tree = tree_i
 
-        np.save("rewards_pomcp.npy", rewards)
+        np.save("rewards_pomcp_term.npy", rewards)
 
         print(" iter = %d"%it)
 
