@@ -556,7 +556,9 @@ def mc_average(card_problem, planner, n_iter, file_name, init_b, reuse, T):
         rewards[it] = r
         np.save(file_name, rewards)
 
-        print("*** iter = %d"%(it+1))
+        num = (rewards != 0).sum()
+
+        print("average reward ", rewards.sum() * 1.0 / num, "*** iter = %d"%(it+1))
 
     print("average reward ", rewards.mean(), "over %d iter"%n_iter)
 
