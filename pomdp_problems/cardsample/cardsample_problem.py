@@ -539,7 +539,7 @@ def env_reset_s0(problem):
     return s0
 
 def mc_average(card_problem, planner, n_iter, file_name, init_b, reuse, T):
-    rewards = np.zeros(n_iter)
+    rewards = - np.ones(n_iter)*2*T
 
     for it in range(n_iter):
         card_problem.agent.set_belief(init_b, prior = True)
@@ -556,7 +556,7 @@ def mc_average(card_problem, planner, n_iter, file_name, init_b, reuse, T):
         rewards[it] = r
         np.save(file_name, rewards)
 
-        num = (rewards != 0).sum()
+        num = (rewards != -2*T).sum()
 
         print("average reward ", rewards.sum() * 1.0 / num, "*** iter = %d"%(it+1))
 
@@ -578,7 +578,7 @@ def main():
 
     print("\n** Testing POUCT **")
     pouct = pomdp_py.POUCT(max_depth=T//2, discount_factor=0.95,
-                           num_sims=40000, exploration_const=200,
+                           num_sims=40000, exploration_const=20,
                            rollout_policy=card_problem.agent.policy_model)
 
     n_iter = 100
@@ -594,7 +594,7 @@ def main():
     reuse = True
 
     pomcp = pomdp_py.POMCP(max_depth=T//2, discount_factor=1.,
-                               num_sims=20000, exploration_const=200,
+                               num_sims=20000, exploration_const=20,
                                rollout_policy=card_problem.agent.policy_model,
                                num_visits_init=1)
 
