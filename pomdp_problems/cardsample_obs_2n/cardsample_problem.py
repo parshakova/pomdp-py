@@ -114,25 +114,16 @@ def create_all_observations(states):
     all_obs = set()
     for st in states:
         val = np.array(st.val)
-        obs_val = np.zeros((3*P.n), np.int32)
-        if val.sum() == 1:
+        if val.sum() <= 1:
             # need to have s' <- s,a
-            for a in range(P.n):
-                obs_val[3*a] = 1
-                obs = Observation(tuple(obs_val))
-                if obs not in all_obs:
-                    all_obs.add(obs)
-                obs_val[3*a] = 0
-        else:
-            sp_a = sp_remove_card(st)
+            continue
+        sp_a = sp_remove_card(st)
+        a_matches = sp_a[2::3]
+        a_mismatches = sp_a[1::3] - a_matches
 
-            a_matches = sp_a[2::3]
-            a_mismatches = sp_a[1::3] - a_matches
-
-            
-            obs_val[::3] = a_matches + a_mismatches
-            obs_val[1::3] = a_matches
-            obs_val[2::3] = a_mismatches
+        obs_val = np.zeros((2*P.n), np.int32)
+        obs_val[::2] = a_matches
+        obs_val[1::2] = a_mismatches
         obs = Observation(tuple(obs_val))
         if obs not in all_obs:
             #assert sp_a[1::3].sum() == obs_val.sum()
@@ -231,20 +222,10 @@ class ObservationModel(pomdp_py.ObservationModel):
         # Pr( o | s', a)
         # a = a_t
         # s' = [ (# t's: c_t=1, # t's: a_t=1, # t's: a_t=1=c_T), ..., (# t's: c_t=n, # t's: a_t=n, # t's: a_t=n=c_T)]
-        # o = [(# t's: a_t=1, # t's: a_t=1=c_T, # t's: a_t=1!=c_T), ... , (# t's: a_t=n, # t's: a_t=n=c_T, # t's: a_t=n!=c_T)]
+        # o = [(# t's: a_t=1=c_T, # t's: a_t=1!=c_T), ... , (# t's: a_t=n=c_T, # t's: a_t=n!=c_T)]
         # s_t, a_t -> sample card c_tp1 -> s_tp1 = counts on s_t U {c_t, a_t} U {c_tp1}
 
         obs_real = np.array(observation.val)
-
-        st_val = np.array(next_state.val)
-        if st_val.sum() == 1:
-            # need to have s' <- s,a
-            sp_a =  st_val
-            
-            if obs_real[3*action.val] == 1 and  obs_real.sum() == 1:
-                return 1.0
-            else:
-                return 0.
         sp_a = sp_remove_card(next_state)
 
         a_matches = sp_a[2::3]
@@ -253,8 +234,7 @@ class ObservationModel(pomdp_py.ObservationModel):
         assert np.all(a_mismatches >= 0), "prob false sp_a"
         assert np.all(sp_a >= 0), "prob false sp_a 2"
 
-        if np.all(obs_real[::3] == sp_a[1::3]) and np.all(obs_real[1::3] == a_matches) \
-                                    and np.all(obs_real[2::3] == a_mismatches):        
+        if np.all(obs_real[::2] == a_matches) and np.all(obs_real[1::2] == a_mismatches):        
             return 1.
         else:
             return 0.
@@ -263,25 +243,16 @@ class ObservationModel(pomdp_py.ObservationModel):
     def sample(self, next_state, action):
         # a = a_t
         # s' = [ (# t's: c_t=1, # t's: a_t=1, # t's: a_t=1=c_T), ..., (# t's: c_t=n, # t's: a_t=n, # t's: a_t=n=c_T)]
-        # o = [(# t's: a_t=1, # t's: a_t=1=c_T, # t's: a_t=1!=c_T), ... , (# t's: a_t=n, # t's: a_t=n=c_T, # t's: a_t=n!=c_T)]
+        # o = [(# t's: a_t=1=c_T, # t's: a_t=1!=c_T), ... , (# t's: a_t=n=c_T, # t's: a_t=n!=c_T)]
         # deterministic
         # s_t, a_t -> sample card c_tp1 -> s_tp1 = counts on s_t U {c_t, a_t} U {c_tp1}
-        st_val = np.array(next_state.val)
-        obs = np.zeros((3*P.n), np.int32)
-
-        if st_val.sum() == 1:
-            # need to have s' <- s,a
-            obs[3*action.val] = 1
-            return Observation(tuple(obs))
-        else:
-            sp_a = sp_remove_card(next_state)
+        sp_a = sp_remove_card(next_state)
         a_matches = sp_a[2::3]
         a_mismatches = sp_a[1::3] - a_matches
 
-        
-        obs[1::3] = a_matches
-        obs[2::3] = a_mismatches
-        obs[::3] = a_matches + a_mismatches
+        obs = np.zeros((2*P.n), np.int32)
+        obs[::2] = a_matches
+        obs[1::2] = a_mismatches
         try:
             assert np.all(a_mismatches >= 0)and np.all(sp_a >= 0), "prob false sp_a" 
         except:
@@ -610,23 +581,22 @@ def main():
 
     card_problem.agent.set_belief(init_belief_hist, prior=True)
 
-    
     print("\n** Testing VI-pruning **")
     pomdp_solve_path = pathlib.Path().absolute()
-    pomdp_solve_path = str(pomdp_solve_path) +"/pomdp-solve.bin"
+    pomdp_solve_path = str(pomdp_solve_path)+"/pomdp-solve-os-x.bin"
     print(pomdp_solve_path)
-    print(card_problem.agent.all_states, card_problem.agent.all_observations, card_problem.agent.all_actions)
+    #print(card_problem.agent.all_states, card_problem.agent.all_observations, card_problem.agent.all_actions)
     policy = pomdp_py.vi_pruning(card_problem.agent, pomdp_solve_path, discount_factor=0.95,
                     options=["-horizon", str(T)],
                     remove_generated_files=False,
                     return_policy_graph=False)
+
     n_iter = 100
     reuse = True
-    vi_rewards = mc_average(card_problem, pouct, n_iter, "rewards_vi%d.npy"%n_iter, init_belief_hist, reuse, T)
-    
+    uct_rewards = mc_average(card_problem, pouct, n_iter, "rewards_pouct%d.npy"%n_iter, init_belief_hist, reuse, T)
 
     print("\n** Testing POUCT **")
-    pouct = pomdp_py.POUCT(max_depth=T, discount_factor=0.95,
+    pouct = pomdp_py.POUCT(max_depth=T//2, discount_factor=0.95,
                            num_sims=40000, exploration_const=20,
                            rollout_policy=card_problem.agent.policy_model)
 
@@ -642,7 +612,7 @@ def main():
     n_iter = 100
     reuse = True
 
-    pomcp = pomdp_py.POMCP(max_depth=T, discount_factor=1.,
+    pomcp = pomdp_py.POMCP(max_depth=T//2, discount_factor=1.,
                                num_sims=20000, exploration_const=20,
                                rollout_policy=card_problem.agent.policy_model,
                                num_visits_init=1)

@@ -55,7 +55,7 @@ def vi_pruning(agent, pomdp_solve_path,
     to_pomdp_file(agent, pomdp_path, discount_factor=discount_factor)
     proc = subprocess.Popen([pomdp_solve_path,
                              "-pomdp", pomdp_path,
-                             "-o", pomdp_name] + list(map(str,options)))
+                             "-o", pomdp_name] + list(map(str,options)), shell=True)
     proc.wait()
 
     # Read the value and policy graph files
