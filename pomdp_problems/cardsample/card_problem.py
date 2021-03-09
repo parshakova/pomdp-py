@@ -8,15 +8,15 @@ This is a POMDP problem; Namely, it specifies both
 the POMDP (i.e. state, action, observation space)
 and the T/O/R for the agent as well as the environment.
 
-States: at time t is a tuple of size 3*n, stores 
-        counts of cards, actions and matches for each card of type k 
+States: at time t is a tuple of size 3*n, stores
+        counts of cards, actions and matches for each card of type k
         [ (# t's: c_t=1, # t's: a_t=1, # t's: a_t=1=c_T), ..., (# t's: c_t=n, # t's: a_t=n, # t's: a_t=n=c_T)]
 Actions: a in {1, 2, ..., n}
 Rewards:
-    +1 if a_t == c_t 
+    +1 if a_t == c_t
     0 otw
-Observations: at time t is a tuple of size 1*n, stores 
-        matches of actions and their mismatches for each card of type k 
+Observations: at time t is a tuple of size 1*n, stores
+        matches of actions and their mismatches for each card of type k
         [(# t's: a_t=1=c_T, # t's: a_t=1!=c_T), ... , (# t's: a_t=n=c_T, # t's: a_t=n!=c_T)]
 
 s1, b1, a1 -> s2, o2, r2, b2, a2 -> ...
@@ -39,9 +39,6 @@ import sys
 import heapq
 import bisect
 import copy
-import pathlib
-
-
 
 class P:
     m = 2
@@ -53,7 +50,7 @@ def get_s_a_update(state, a):
     sp_a = np.array(state.val)
     ct = state.card
     if a == ct:
-        # update sp[3*ct + 1:3*ct + 3] += (1, 1) for match; 3*ct is already updated 
+        # update sp[3*ct + 1:3*ct + 3] += (1, 1) for match; 3*ct is already updated
         sp_a[3*ct + 1: 3*ct + 3] += np.ones(2, np.int32)
     else:
         # update sp[3*a+1] for mismatch; counter for a
@@ -108,37 +105,28 @@ def create_all_states(state, states):
                         #print(s_tp1)
                         create_all_states(s_tp1, states)
                     sp_a_val[3*card] -= 1
- 
+
 
 def create_all_observations(states):
     all_obs = set()
     for st in states:
         val = np.array(st.val)
-        obs_val = np.zeros((3*P.n), np.int32)
-        if val.sum() == 1:
+        if val.sum() <= 1:
             # need to have s' <- s,a
-            for a in range(P.n):
-                obs_val[3*a] = 1
-                obs = Observation(tuple(obs_val))
-                if obs not in all_obs:
-                    all_obs.add(obs)
-                obs_val[3*a] = 0
-        else:
-            sp_a = sp_remove_card(st)
+            continue
+        sp_a = sp_remove_card(st)
+        a_matches = sp_a[2::3]
+        a_mismatches = sp_a[1::3] - a_matches
 
-            a_matches = sp_a[2::3]
-            a_mismatches = sp_a[1::3] - a_matches
-
-            
-            obs_val[::3] = a_matches + a_mismatches
-            obs_val[1::3] = a_matches
-            obs_val[2::3] = a_mismatches
+        obs_val = np.zeros((2*P.n), np.int32)
+        obs_val[::2] = a_matches
+        obs_val[1::2] = a_mismatches
         obs = Observation(tuple(obs_val))
         if obs not in all_obs:
             #assert sp_a[1::3].sum() == obs_val.sum()
             #print(obs, st)
             all_obs.add(obs)
-        
+
     return list(all_obs)
 
 
@@ -171,8 +159,7 @@ class State(pomdp_py.State):
 
     def __repr__(self):
         #return "State(%s, %s)" % (str(self.val), str(self.deck))
-        str_val = ",".join(str(i) for i in self.val)
-        return "S((%s),%s,%s)" % (str_val, str(self.card), str(self.r))
+        return "State(%s, %s, %s)" % (str(self.val), str(self.card), str(self.r))
 
     def copy(self):
         return State(self.val, self.card, self.r, self.terminal)
@@ -197,7 +184,7 @@ class Action(pomdp_py.Action):
         return self.__repr__()
 
     def __repr__(self):
-        return "A(%s)" % str(self.val)
+        return "Action(%s)" % str(self.val)
 
 
 class Observation(pomdp_py.Observation):
@@ -219,8 +206,7 @@ class Observation(pomdp_py.Observation):
         return self.__repr__()
 
     def __repr__(self):
-        str_val = ",".join(str(i) for i in self.val)
-        return "O((%s))" % (str_val)
+        return "Observation(%s)" % str(self.val)
 
 
 # Observation model
@@ -231,20 +217,10 @@ class ObservationModel(pomdp_py.ObservationModel):
         # Pr( o | s', a)
         # a = a_t
         # s' = [ (# t's: c_t=1, # t's: a_t=1, # t's: a_t=1=c_T), ..., (# t's: c_t=n, # t's: a_t=n, # t's: a_t=n=c_T)]
-        # o = [(# t's: a_t=1, # t's: a_t=1=c_T, # t's: a_t=1!=c_T), ... , (# t's: a_t=n, # t's: a_t=n=c_T, # t's: a_t=n!=c_T)]
+        # o = [(# t's: a_t=1=c_T, # t's: a_t=1!=c_T), ... , (# t's: a_t=n=c_T, # t's: a_t=n!=c_T)]
         # s_t, a_t -> sample card c_tp1 -> s_tp1 = counts on s_t U {c_t, a_t} U {c_tp1}
 
         obs_real = np.array(observation.val)
-
-        st_val = np.array(next_state.val)
-        if st_val.sum() == 1:
-            # need to have s' <- s,a
-            sp_a =  st_val
-            
-            if obs_real[3*action.val] == 1 and  obs_real.sum() == 1:
-                return 1.0
-            else:
-                return 0.
         sp_a = sp_remove_card(next_state)
 
         a_matches = sp_a[2::3]
@@ -253,8 +229,7 @@ class ObservationModel(pomdp_py.ObservationModel):
         assert np.all(a_mismatches >= 0), "prob false sp_a"
         assert np.all(sp_a >= 0), "prob false sp_a 2"
 
-        if np.all(obs_real[::3] == sp_a[1::3]) and np.all(obs_real[1::3] == a_matches) \
-                                    and np.all(obs_real[2::3] == a_mismatches):        
+        if np.all(obs_real[::2] == a_matches) and np.all(obs_real[1::2] == a_mismatches):
             return 1.
         else:
             return 0.
@@ -263,27 +238,18 @@ class ObservationModel(pomdp_py.ObservationModel):
     def sample(self, next_state, action):
         # a = a_t
         # s' = [ (# t's: c_t=1, # t's: a_t=1, # t's: a_t=1=c_T), ..., (# t's: c_t=n, # t's: a_t=n, # t's: a_t=n=c_T)]
-        # o = [(# t's: a_t=1, # t's: a_t=1=c_T, # t's: a_t=1!=c_T), ... , (# t's: a_t=n, # t's: a_t=n=c_T, # t's: a_t=n!=c_T)]
+        # o = [(# t's: a_t=1=c_T, # t's: a_t=1!=c_T), ... , (# t's: a_t=n=c_T, # t's: a_t=n!=c_T)]
         # deterministic
         # s_t, a_t -> sample card c_tp1 -> s_tp1 = counts on s_t U {c_t, a_t} U {c_tp1}
-        st_val = np.array(next_state.val)
-        obs = np.zeros((3*P.n), np.int32)
-
-        if st_val.sum() == 1:
-            # need to have s' <- s,a
-            obs[3*action.val] = 1
-            return Observation(tuple(obs))
-        else:
-            sp_a = sp_remove_card(next_state)
+        sp_a = sp_remove_card(next_state)
         a_matches = sp_a[2::3]
         a_mismatches = sp_a[1::3] - a_matches
 
-        
-        obs[1::3] = a_matches
-        obs[2::3] = a_mismatches
-        obs[::3] = a_matches + a_mismatches
+        obs = np.zeros((2*P.n), np.int32)
+        obs[::2] = a_matches
+        obs[1::2] = a_mismatches
         try:
-            assert np.all(a_mismatches >= 0)and np.all(sp_a >= 0), "prob false sp_a" 
+            assert np.all(a_mismatches >= 0)and np.all(sp_a >= 0), "prob false sp_a"
         except:
             #print(next_state.val, next_state.card, sp_a, action, a_mismatches)
             assert 1/0
@@ -329,7 +295,7 @@ class TransitionModel(pomdp_py.TransitionModel):
             # return probability of sampling card c_{t+1}
             return probs[c_tp1]
         else:
-            return 1.0 
+            return 1.0
 
     def sample(self, state, action):
         # s' ~ Pr( s' | s, a )
@@ -386,7 +352,7 @@ class RewardModel(pomdp_py.RewardModel):
             assert np.all(s_val == sp_val), "order of s and s' "
         elif not next_state.terminal:
             assert np.all(sp_a_val == sp_val), "order of s and s' %s %s %s %s %s %s" %\
-                        (str(action), str(state), str(next_state), str(s_val), str(sp_a_val), str(sp_val)) 
+                        (str(action), str(state), str(next_state), str(s_val), str(sp_a_val), str(sp_val))
                         """
         return self._reward_func(next_state)
 
@@ -459,7 +425,7 @@ def episode_planner(card_problem, planner, nsteps, reuse = False):
     print("s0 ",   s0)
     total_reward = 0
     #policy = card_problem.agent.policy_model
-    
+
     for i in range(nsteps):
         print("==== Step %d ====" % (i+1))
         if  reuse:
@@ -480,15 +446,19 @@ def episode_planner(card_problem, planner, nsteps, reuse = False):
         print("Action: %s" % str(action))
         print("Observation: %s,  %d" % (str(real_observation), np.array(real_observation.val).sum()))
         print("Reward: %s" % str(np.maximum(0, env_reward)))
-        print("True next state: %s, %d %d" % (true_next_state, 
+        print("True next state: %s, %d %d" % (true_next_state,
             np.array(true_next_state.val)[::3].sum(), int(true_next_state.terminal)))
-        
+
 
         print(card_problem.agent.tree, card_problem.agent.tree.children, card_problem.env.state, real_observation)
         vals = {a:card_problem.agent.tree.children[a].value for a in card_problem.agent.tree.children.keys()}
         print(vals)
         if i == 0:
             solved_tree = copy.deepcopy(card_problem.agent.tree)
+
+        if card_problem.agent.tree[action][real_observation] is None:
+            print("TREE WILL BE EMPTY")
+            import pdb; pdb.set_trace()
 
         planner.update(card_problem.agent, action, real_observation)
 
@@ -499,7 +469,7 @@ def episode_planner(card_problem, planner, nsteps, reuse = False):
                                                           card_problem.agent.transition_model)
             card_problem.agent.set_belief(new_belief)
 
-        
+
 
     print("Reward (Cumulative): %s" % str(total_reward))
 
@@ -556,7 +526,7 @@ def get_random_state():
     return init_true_state
 
 all_states = set()
-s0 = State(tuple(np.zeros(3*P.n, np.int32)), -1) 
+s0 = State(tuple(np.zeros(3*P.n, np.int32)), -1)
 create_all_states(s0, all_states)
 all_states = list(all_states)
 all_obs = create_all_observations(all_states)
@@ -576,12 +546,14 @@ def mc_average(card_problem, planner, n_iter, file_name, init_b, reuse, T):
     rewards = - np.ones(n_iter)*2*T
 
     for it in range(n_iter):
+        print("\nMC Average Iter %d" % it)
         card_problem.agent.set_belief(init_b, prior = True)
-        
+
         if it == 0 or not reuse:
             r, tree_i = episode_planner(card_problem, planner, nsteps=T,  reuse=False)
-            
+
         else:
+            # import pdb; pdb.set_trace()
             r, _ =  episode_planner(card_problem, planner, nsteps=T, reuse = True)
         print(card_problem.agent.tree)
 
@@ -610,46 +582,30 @@ def main():
 
     card_problem.agent.set_belief(init_belief_hist, prior=True)
 
-    
-    print("\n** Testing VI-pruning **")
-    pomdp_solve_path = pathlib.Path().absolute()
-    pomdp_solve_path = str(pomdp_solve_path) +"/pomdp-solve.bin"
-    print(pomdp_solve_path)
-    print(card_problem.agent.all_states, card_problem.agent.all_observations, card_problem.agent.all_actions)
-    policy = pomdp_py.vi_pruning(card_problem.agent, pomdp_solve_path, discount_factor=0.95,
-                    options=["-horizon", str(T)],
-                    remove_generated_files=False,
-                    return_policy_graph=False)
-    n_iter = 100
-    reuse = True
-    vi_rewards = mc_average(card_problem, pouct, n_iter, "rewards_vi%d.npy"%n_iter, init_belief_hist, reuse, T)
-    
-
     print("\n** Testing POUCT **")
     pouct = pomdp_py.POUCT(max_depth=T, discount_factor=0.95,
-                           num_sims=40000, exploration_const=20,
+                           num_sims=10000, exploration_const=20,
                            rollout_policy=card_problem.agent.policy_model)
 
-    n_iter = 100
+    n_iter = 1000
     reuse = True
     uct_rewards = mc_average(card_problem, pouct, n_iter, "rewards_pouct%d.npy"%n_iter, init_belief_hist, reuse, T)
 
 
+    # print("*** Testing POMCP ***")
 
-    print("*** Testing POMCP ***")
+    # card_problem.agent.tree = None
+    # n_iter = 100
+    # reuse = True
 
-    card_problem.agent.tree = None
-    n_iter = 100
-    reuse = False
+    # pomcp = pomdp_py.POMCP(max_depth=T//2, discount_factor=1.,
+    #                            num_sims=20000, exploration_const=20,
+    #                            rollout_policy=card_problem.agent.policy_model,
+    #                            num_visits_init=1)
 
-    pomcp = pomdp_py.POMCP(max_depth=T, discount_factor=1.,
-                               num_sims=20000, exploration_const=20,
-                               rollout_policy=card_problem.agent.policy_model,
-                               num_visits_init=1)
+    # mcp_rewards = mc_average(card_problem, pomcp, n_iter, "rewards_pomcp%d.npy"%n_iter, init_belief_part, reuse, T)
 
-    mcp_rewards = mc_average(card_problem, pomcp, n_iter, "rewards_pomcp%d.npy"%n_iter, init_belief_part, reuse, T)
 
-    
 
 
 
