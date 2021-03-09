@@ -558,7 +558,7 @@ def mc_average(card_problem, planner, n_iter, file_name, init_b, reuse, T):
 
         num = (rewards != -2*T).sum()
 
-        print("average reward ", rewards.sum() * 1.0 / num, "*** iter = %d"%(it+1))
+        print("average reward ", rewards[:num].sum() * 1.0 / num, "*** iter = %d"%(it+1))
 
     print("average reward ", rewards.mean(), "over %d iter"%n_iter)
 
