@@ -579,7 +579,7 @@ def main():
                            num_sims=40000, exploration_const=200,
                            rollout_policy=card_problem.agent.policy_model)
 
-    n_iter = 0
+    n_iter = 100
     reuse = True
     uct_rewards = mc_average(card_problem, pouct, n_iter, "rewards_pouct%d.npy"%n_iter, init_belief_hist, reuse, T)
 
