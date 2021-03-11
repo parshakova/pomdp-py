@@ -40,12 +40,15 @@ import heapq
 import bisect
 import copy
 import pathlib
+from pomdp_py.utils.interfaces.solvers import vi_pruning
+import subprocess
+
 
 
 
 class P:
     m = 2
-    n = 2
+    n = 3
 
 def get_s_a_update(state, a):
     # 3*ct is already updated during t-1 step
@@ -163,7 +166,8 @@ class State(pomdp_py.State):
 
     def __eq__(self, other):
         if isinstance(other, State):
-            return self.val == other.val
+            return self.val == other.val and self.card == other.card \
+                                and self.r == other.r and self.terminal == other.terminal
         return False
 
     def __str__(self):
@@ -171,8 +175,12 @@ class State(pomdp_py.State):
 
     def __repr__(self):
         #return "State(%s, %s)" % (str(self.val), str(self.deck))
-        str_val = ",".join(str(i) for i in self.val)
-        return "S((%s),%s,%s)" % (str_val, str(self.card), str(self.r))
+        str_val = "I".join(str(i) for i in self.val)
+        if self.card == "$":
+            card = "F"
+        else:
+            card = self.card
+        return "So%soC%sR%sT%d" % (str_val, card, str(self.r), int(self.terminal))
 
     def copy(self):
         return State(self.val, self.card, self.r, self.terminal)
@@ -197,7 +205,7 @@ class Action(pomdp_py.Action):
         return self.__repr__()
 
     def __repr__(self):
-        return "A(%s)" % str(self.val)
+        return "A%s" % str(self.val)
 
 
 class Observation(pomdp_py.Observation):
@@ -219,8 +227,8 @@ class Observation(pomdp_py.Observation):
         return self.__repr__()
 
     def __repr__(self):
-        str_val = ",".join(str(i) for i in self.val)
-        return "O((%s))" % (str_val)
+        str_val = "I".join(str(i) for i in self.val)
+        return "O%s" % (str_val)
 
 
 # Observation model
@@ -325,7 +333,7 @@ class TransitionModel(pomdp_py.TransitionModel):
         if not next_state.terminal:
             # multiplicities of left over cards
             probs = P.m - s_val[::3]
-            probs = probs*1.0/probs.sum()
+            probs = probs*1.0 / probs.sum()
             # return probability of sampling card c_{t+1}
             return probs[c_tp1]
         else:
@@ -338,7 +346,9 @@ class TransitionModel(pomdp_py.TransitionModel):
         # s_t, a_t -> sample card c_tp1 -> s_tp1 = counts on s_t U {c_t, a_t} U {c_tp1}
 
         if state.terminal:
-            return state.copy()
+            s = state.copy()
+            s.r = 0
+            return s
 
         sp_a_val = get_s_a_update(state, action.val)
 
@@ -356,7 +366,8 @@ class TransitionModel(pomdp_py.TransitionModel):
             terminal = False
             # update card c_{t+1} counter
             sp_a_val[3*card] += 1
-            r = int(action.val == state.card)
+
+        r = int(action.val == state.card)
 
         return State(tuple(sp_a_val), card, r=r, terminal=terminal)
 
@@ -521,8 +532,12 @@ def episode_planner(card_problem, planner, nsteps, reuse = False):
     for i in range(nsteps):
         print("==== Step %d ====" % (i+1))
         if reuse and not ( isinstance(planner, pomdp_py.PolicyGraph) or  \
-                        isinstance(planner, pomdp_py.AlphaVectorPolicy)):
+                        isinstance(planner, pomdp_py.AlphaVectorPolicy) or planner in ["rand", "1by1"]):
             action = max(card_problem.agent.tree.children, key=lambda a: card_problem.agent.tree.children[a].value)
+        elif planner == "rand":
+            action = Action(random.choice(range(P.n)))
+        elif planner == "1by1":
+            action = Action(0)
         else:
             action = planner.plan(card_problem.agent)
         #action = policy.sample(card_problem.agent.cur_belief)
@@ -534,7 +549,6 @@ def episode_planner(card_problem, planner, nsteps, reuse = False):
         card_problem.agent.update_history(action, real_observation)
 
         total_reward += np.maximum(0, env_reward)
-        #print("belief ", card_problem.agent.cur_belief, len(card_problem.agent.cur_belief))
         print("True state: %s, %d %d" % (true_state, np.array(true_state.val)[::3].sum(), int(true_state.terminal)))
         print("Action: %s" % str(action))
         print("Observation: %s,  %d" % (str(real_observation), np.array(real_observation.val).sum()))
@@ -553,8 +567,8 @@ def episode_planner(card_problem, planner, nsteps, reuse = False):
                         or isinstance(planner, pomdp_py.PolicyGraph):
             planner.update(card_problem.agent, action, real_observation)
 
-        if isinstance(card_problem.agent.cur_belief, pomdp_py.Histogram) \
-                or isinstance(planner, pomdp_py.AlphaVectorPolicy):
+        if  planner not in ["rand", "1by1"] and (isinstance(card_problem.agent.cur_belief, pomdp_py.Histogram) \
+                or isinstance(planner, pomdp_py.AlphaVectorPolicy)):
             new_belief = pomdp_py.update_histogram_belief(card_problem.agent.cur_belief,
                                                           action, real_observation,
                                                           card_problem.agent.observation_model,
@@ -573,24 +587,26 @@ def episode_planner(card_problem, planner, nsteps, reuse = False):
 def mc_average(card_problem, planner, n_iter, file_name, init_b, reuse, T):
     rewards = - np.ones(n_iter)*2*T
 
+    copy_tree  = None
+
     for it in range(n_iter):
         card_problem.agent.set_belief(init_b, prior = True)
-        
-        if it == 0 or not reuse:
-            r, tree_i = episode_planner(card_problem, planner, nsteps=T,  reuse=False)
             
-        else:
-            r, _ =  episode_planner(card_problem, planner, nsteps=T, reuse = True)
+        r, tree_i = episode_planner(card_problem, planner, nsteps=T,  reuse= (reuse and  it != 0))
+
+        if it == 0 or not reuse:
+            copy_tree = copy.deepcopy(tree_i)
+            
         #print(card_problem.agent.tree)
         if isinstance(planner, pomdp_py.POUCT) or isinstance(planner, pomdp_py.POMCP):
-            card_problem.agent.tree = copy.deepcopy(tree_i)
+            card_problem.agent.tree = copy.deepcopy(copy_tree)
 
         rewards[it] = r
-        np.save(file_name, rewards)
 
-        num = (rewards != -2*T).sum()
-
-        print("average reward ", rewards[:num].sum() * 1.0 / num, "*** iter = %d"%(it+1))
+        if it % 20 == 0 or it == n_iter-1:
+            np.save(file_name, rewards)
+            num = (rewards != -2*T).sum()
+            print("average reward ", rewards[:num].sum() * 1.0 / num, "*** iter = %d"%(it+1))
 
     print("average reward ", rewards.mean(), "over %d iter"%n_iter)
 
@@ -615,6 +631,9 @@ create_all_states(s0, all_states)
 all_states = list(all_states)
 all_obs = create_all_observations(all_states)
 
+map_idx_states = all_states
+map_idx_states = all_obs
+
 print("|S| = %d" % len(all_states))
 print("|O| = %d" %  len(all_obs))
 
@@ -630,39 +649,53 @@ def main():
     card_problem.agent.tree = None
     card_problem.agent.set_belief(init_belief_hist, prior=True)
 
+    print("\n** Testing 1by1 Policy **")
+
+    n_iter = 1000; reuse = True
+    vi_rewards = mc_average(card_problem, "1by1", n_iter, "rewards_1by1%d_m%dn%d.npy"%(n_iter, P.m, P.n), \
+        init_belief_hist, reuse, T)
+
+
+    print("\n** Testing Random Policy **")
+
+    n_iter = 1000; reuse = True
+    vi_rewards = mc_average(card_problem, "rand", n_iter, "rewards_rand%d_m%dn%d.npy"%(n_iter, P.m, P.n), \
+                             init_belief_hist, reuse, T)
+
     
     print("\n** Testing VI-pruning **")
 
-    alpha_file_name = "temp_pomdp"
-    create_alpha_file(alpha_file_name, all_states)
-    pomdp_solve_path = pathlib.Path().absolute()
-    pomdp_solve_path = str(pomdp_solve_path) +"/pomdp-solve.bin"
-    print(pomdp_solve_path)
+    alpha_file_name = "vi_pomdp"
+    pomdp_solve_path = str(pathlib.Path().absolute()) + "/pomdp-solve.bin"
     print(card_problem.agent.all_states, card_problem.agent.all_observations, card_problem.agent.all_actions)
-    vi_policy = pomdp_py.vi_pruning(card_problem.agent, pomdp_solve_path, discount_factor=0.95,
+    vi_policy = vi_pruning(card_problem.agent, pomdp_solve_path, discount_factor=0.99,
                     options=["-horizon",  T],
                     remove_generated_files=False,
                     return_policy_graph=False, pomdp_name=alpha_file_name)
-    n_iter = 100
+    n_iter = 1000
     reuse = True
-    vi_rewards = mc_average(card_problem, vi_policy, n_iter, "rewards_vi%d.npy"%n_iter, init_belief_hist, reuse, T)
-    
+    vi_rewards = mc_average(card_problem, vi_policy, n_iter, "rewards_vi%d_m%dn%d.npy"%(n_iter, P.m, P.n), \
+                             init_belief_hist, reuse, T)
+    """
 
+    
     print("\n** Testing POUCT **")
     pouct = pomdp_py.POUCT(max_depth=T, discount_factor=0.95,
                            num_sims=40000, exploration_const=20,
                            rollout_policy=card_problem.agent.policy_model)
 
-    n_iter = 3
+    n_iter = 1000
     reuse = True
-    uct_rewards = mc_average(card_problem, pouct, n_iter, "rewards_pouct%d.npy"%n_iter, init_belief_hist, reuse, T)
+    uct_rewards = mc_average(card_problem, pouct, n_iter, "rewards_pouct%d_m%dn%d.npy"%(n_iter, P.m, P.n),\
+                                             init_belief_hist, reuse, T)
 
+    """
 
-
+    """
     print("*** Testing POMCP ***")
 
     card_problem.agent.tree = None
-    n_iter = 100
+    n_iter = 0
     reuse = False
 
     pomcp = pomdp_py.POMCP(max_depth=T, discount_factor=1.,
@@ -670,9 +703,10 @@ def main():
                                rollout_policy=card_problem.agent.policy_model,
                                num_visits_init=1)
 
-    mcp_rewards = mc_average(card_problem, pomcp, n_iter, "rewards_pomcp%d.npy"%n_iter, init_belief_part, reuse, T)
+    mcp_rewards = mc_average(card_problem, pomcp, n_iter, "rewards_pomcp%d_m%dn%d.npy"%(n_iter, P.m, P.n),\
+                                         init_belief_part, reuse, T)
 
-    
+    """
 
 
 
